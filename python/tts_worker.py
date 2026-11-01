@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
-Persistent ZeroTTS Worker Daemon (voice='maichi' default).
+Persistent ZeroTTS Worker Sidecar (voice='maichi' default).
 - Strict Vietnamese-only text sanitizer: strips all Cuneiform (𒐫), Zalgo, emojis, and foreign scripts
   before passing to ZeroTTS so the model never chokes or glitches.
 - Single-pass continuous synthesis + soft peak normalization (<= 0.90) + cosine fade-in/out.
 - Low CPU configuration: intra_op_num_threads=3 + OMP_WAIT_POLICY=PASSIVE (0% CPU when idle).
+- Auto-materializes HuggingFace snapshot symlinks into hardlinks so ONNXRuntime >= 1.21 external
+  data path validation works cleanly across sharded blob directories.
 """
 import hashlib
 import json
 import os
 import re
+import shutil
 import sys
 import time
 import traceback
@@ -23,20 +26,21 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "3")
 os.environ.setdefault("VECLIB_MAXIMUM_THREADS", "3")
 
 import numpy as np
-from zerotts import ZeroTTS, normalize_vi_text
+from zerotts import ZeroTTS, hub as zerotts_hub, normalize_vi_text
 from zerotts.chunking import normalize_punctuation
 
-CACHE_DIR = Path(__file__).resolve().parent / "data" / "tts-cache"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+CACHE_DIR = Path(os.environ.get("ZEROTTS_CACHE_DIR", str(PROJECT_ROOT / "data" / "tts-cache")))
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-LOCAL_MODEL_CANDIDATES = [
-    os.environ.get("ZEROTTS_MODEL_PATH", ""),
-    "/Users/zens/Work/UIT/Projects/f1-metrics-explainer/models/zerotts",
-]
+DEFAULT_MODEL_REPO = "zeroweight-ai/ZeroTTS"
 
 # Chỉ giữ lại chữ cái tiếng Việt (Latin + dấu tiếng Việt), chữ số và dấu câu cơ bản
 VIETNAMESE_ALLOWED_RE = re.compile(
     r"[^0-9a-zA-ZÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝàáâãèéêìíòóôõùúýĂăĐđĨĩŨũƠơƯưẠ-ỹ\s.,!?]"
+)
+VI_LETTER_RE = re.compile(
+    r"[a-zA-ZÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝàáâãèéêìíòóôõùúýĂăĐđĨĩŨũƠơƯưẠ-ỹ]"
 )
 BRACKET_EMOTE_RE = re.compile(r"\[[^\]]{1,24}\]")
 REPEATED_CHARS_RE = re.compile(r"(.)\1{2,}", re.IGNORECASE)
@@ -45,10 +49,36 @@ MULTI_SPACE_RE = re.compile(r"\s+")
 
 
 def resolve_model_source() -> str:
-    for candidate in LOCAL_MODEL_CANDIDATES:
-        if candidate and os.path.isdir(candidate) and os.path.isfile(os.path.join(candidate, "config.json")):
-            return candidate
-    return "zeroweight-ai/ZeroTTS"
+    env_path = os.environ.get("ZEROTTS_MODEL_PATH", "").strip()
+    if env_path and os.path.isdir(env_path) and os.path.isfile(os.path.join(env_path, "config.json")):
+        return env_path
+    return DEFAULT_MODEL_REPO
+
+
+def materialize_snapshot_symlinks(model_dir: Path) -> Path:
+    """Atomically replace HF Hub cross-directory blob symlinks with hardlinks (0 extra bytes)
+    so ONNXRuntime external .data path validation never rejects sharded blobs."""
+    if not model_dir.is_dir():
+        return model_dir
+    pid = os.getpid()
+    for entry in model_dir.rglob("*"):
+        if not entry.is_symlink():
+            continue
+        target = entry.resolve(strict=True)
+        tmp_entry = entry.with_name(f".{entry.name}.tmp.{pid}")
+        if tmp_entry.exists() or tmp_entry.is_symlink():
+            tmp_entry.unlink()
+        try:
+            try:
+                os.link(target, tmp_entry)
+            except OSError:
+                shutil.copy2(target, tmp_entry)
+            os.replace(tmp_entry, entry)
+        except Exception:
+            if tmp_entry.exists() or tmp_entry.is_symlink():
+                tmp_entry.unlink()
+            raise
+    return model_dir
 
 
 def emit(payload: dict) -> None:
@@ -71,7 +101,7 @@ def clean_and_normalize_text(raw_text: str) -> str:
     text = MULTI_SPACE_RE.sub(" ", text).strip(" .,!?-")
 
     # Phải có ít nhất 2 chữ cái hợp lệ mới đọc
-    letters = re.findall(r"[a-zA-ZÀ-ỹĂăĐđĨĩŨũƠơƯư]", text)
+    letters = VI_LETTER_RE.findall(text)
     if len(letters) < 2:
         return ""
 
@@ -118,7 +148,9 @@ def main() -> None:
     emit({"type": "status", "status": "loading", "model": model_src})
 
     try:
-        tts = ZeroTTS.from_pretrained(model_src, intra_op_num_threads=3)
+        resolved_dir = zerotts_hub.resolve_model_dir(model_src)
+        materialize_snapshot_symlinks(Path(resolved_dir))
+        tts = ZeroTTS.from_pretrained(resolved_dir, intra_op_num_threads=3)
         voices = tts.list_voices()
         default_voice = "maichi" if "maichi" in voices else (voices[0] if voices else None)
         load_sec = round(time.time() - t0, 2)
@@ -148,9 +180,10 @@ def main() -> None:
             req = json.loads(line)
             req_id = req.get("id")
             text = (req.get("text") or "").strip()
-            voice = (req.get("voice") or "maichi").strip().lower()
+            fallback_voice = default_voice or "maichi"
+            voice = (req.get("voice") or fallback_voice).strip().lower()
             if voice not in voices:
-                voice = "maichi"
+                voice = fallback_voice
 
             norm_text = clean_and_normalize_text(text)
             if not norm_text:

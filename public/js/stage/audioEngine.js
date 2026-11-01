@@ -1,11 +1,12 @@
 /**
- * TempleAudioEngine
- * - Nhạc nền: Phát trực tiếp file "Nam Mô A Di Đà Phật.m4a" (/assets/bg_chant.m4a) lặp vô tận êm dịu,
- *   tự động hạ nhỏ âm lượng (ducking) khi có giọng đọc lời khấn để không bị đè tiếng hay rè/xước.
- * - Pháp khí: Tổng hợp tiếng Mõ gỗ, Đại Hồng Chung, Ống xăm nhẹ nhàng, không vượt ngưỡng 0dBFS.
- * - Giọng đọc: Hàng đợi ZeroTTS phát tuần tự mượt mà.
+ * TempleAudioEngine (Native ESM)
+ * - Nhạc nền: Tự động kiểm tra `hasBgChant` từ state server trước khi nạp `/assets/bg_chant.m4a`
+ *   (tránh lỗi 404 ngầm khi chưa chép file .m4a), fallback mượt sang chuông thiền ngũ cung Web Audio;
+ *   tự động hạ nhỏ âm lượng (auto-ducking) khi có giọng đọc lời khấn.
+ * - Pháp khí: Tổng hợp tiếng Mõ gỗ, Đại Hồng Chung, Ống xăm, Chuông ngọc bằng Web Audio API.
+ * - Giọng đọc: Hàng đợi ZeroTTS phát tuần tự, hỗ trợ callback `onStart` / `onEnd` đồng bộ hình ảnh.
  */
-class TempleAudioEngine {
+export class TempleAudioEngine {
   constructor() {
     this.ctx = null;
     this.unlocked = false;
@@ -14,25 +15,44 @@ class TempleAudioEngine {
     this.ttsEnabled = true;
     this.ttsVoice = 'maichi';
 
-    // Nhạc nền "Nam Mô A Di Đà Phật.m4a" — mặc định 65%, cho phép chỉnh trực tiếp 0% - 100%
     const savedMusicVol = parseFloat(localStorage.getItem('temple_music_vol'));
     const savedTtsVol = parseFloat(localStorage.getItem('temple_tts_vol'));
-    this.bgBaseVolume = Number.isFinite(savedMusicVol) ? Math.max(0, Math.min(1, savedMusicVol)) : 0.65;
-    this.ttsVolume = Number.isFinite(savedTtsVol) ? Math.max(0, Math.min(1, savedTtsVol)) : 0.95;
+    this.bgBaseVolume = Number.isFinite(savedMusicVol)
+      ? Math.max(0, Math.min(1, savedMusicVol))
+      : 0.65;
+    this.ttsVolume = Number.isFinite(savedTtsVol)
+      ? Math.max(0, Math.min(1, savedTtsVol))
+      : 0.95;
 
-    this.useSynthMusicFallback = false;
+    this.useSynthMusicFallback = true;
     this.synthBgTimer = null;
-    this.bgAudio = new Audio('/assets/bg_chant.m4a');
-    this.bgAudio.loop = true;
-    this.bgAudio.preload = 'auto';
-    this.bgAudio.volume = this.bgBaseVolume;
-    this.bgAudio.onerror = () => {
-      this.useSynthMusicFallback = true;
-    };
+    this.bgAudio = null;
+
     this.ttsQueue = [];
     this.ttsPlaying = false;
     this.currentAudio = null;
     this.onTtsStateChange = null;
+  }
+
+  configureBgChantAsset(hasBgChant) {
+    if (hasBgChant && !this.bgAudio) {
+      const audio = new Audio('/assets/bg_chant.m4a');
+      audio.loop = true;
+      audio.preload = 'auto';
+      audio.volume = this.bgBaseVolume;
+      audio.onerror = () => {
+        this.useSynthMusicFallback = true;
+      };
+      this.bgAudio = audio;
+      this.useSynthMusicFallback = false;
+      if (this.unlocked && this.bgMusicEnabled) {
+        if (this.synthBgTimer) {
+          clearInterval(this.synthBgTimer);
+          this.synthBgTimer = null;
+        }
+        this.startZenAmbience();
+      }
+    }
   }
 
   ensureContext() {
@@ -50,9 +70,6 @@ class TempleAudioEngine {
     return this.ctx;
   }
 
-  // --------------------------------------------------------------------------
-  // 1. NHẠC NỀN "NAM MÔ A DI ĐÀ PHẬT.M4A" (CÓ AUTO-DUCKING KHI ĐỌC LỜI KHẤN)
-  // --------------------------------------------------------------------------
   getDuckedVolume() {
     return Math.max(0.08, +(this.bgBaseVolume * 0.35).toFixed(2));
   }
@@ -83,7 +100,7 @@ class TempleAudioEngine {
 
   startZenAmbience() {
     if (!this.bgMusicEnabled) return;
-    if (this.useSynthMusicFallback) {
+    if (this.useSynthMusicFallback || !this.bgAudio) {
       this.startDefaultZenSynthLoop();
       return;
     }
@@ -93,7 +110,7 @@ class TempleAudioEngine {
         const p = this.bgAudio.play();
         if (p && typeof p.catch === 'function') {
           p.catch(() => {
-            if (this.bgAudio.error) {
+            if (this.bgAudio?.error) {
               this.useSynthMusicFallback = true;
               this.startDefaultZenSynthLoop();
             }
@@ -144,7 +161,7 @@ class TempleAudioEngine {
 
   stopZenAmbience() {
     try {
-      this.bgAudio.pause();
+      this.bgAudio?.pause();
     } catch (_) {}
     if (this.synthBgTimer) {
       clearInterval(this.synthBgTimer);
@@ -161,9 +178,6 @@ class TempleAudioEngine {
     } catch (_) {}
   }
 
-  // --------------------------------------------------------------------------
-  // 2. TIẾNG MÕ GỖ TỤNG KINH (WOODEN FISH PERCUSSION SYNTH)
-  // --------------------------------------------------------------------------
   playWoodenFish(pitchMultiplier = 1.0) {
     if (!this.sfxEnabled) return;
     try {
@@ -203,9 +217,6 @@ class TempleAudioEngine {
     } catch (_) {}
   }
 
-  // --------------------------------------------------------------------------
-  // 3. TIẾNG ĐẠI HỒNG CHUNG (TEMPLE BRONZE BELL)
-  // --------------------------------------------------------------------------
   playTempleBell(intensity = 1.0) {
     if (!this.sfxEnabled) return;
     try {
@@ -247,9 +258,6 @@ class TempleAudioEngine {
     } catch (_) {}
   }
 
-  // --------------------------------------------------------------------------
-  // 4. TIẾNG LẮC ỐNG XĂM TRE (FORTUNE STICK SHAKER)
-  // --------------------------------------------------------------------------
   playFortuneShake() {
     if (!this.sfxEnabled) return;
     for (let i = 0; i < 5; i++) {
@@ -259,9 +267,6 @@ class TempleAudioEngine {
     }
   }
 
-  // --------------------------------------------------------------------------
-  // 5. TIẾNG CHUÔNG NGỌC DÂNG LỄ / THẮP HƯƠNG (SINGING CHIME)
-  // --------------------------------------------------------------------------
   playIncenseChime() {
     if (!this.sfxEnabled) return;
     try {
@@ -275,7 +280,7 @@ class TempleAudioEngine {
         osc.frequency.setValueAtTime(freq, now + idx * 0.1);
 
         gain.gain.setValueAtTime(0.0001, now + idx * 0.1);
-        gain.gain.linearRampToValueAtTime(0.10, now + idx * 0.1 + 0.015);
+        gain.gain.linearRampToValueAtTime(0.1, now + idx * 0.1 + 0.015);
         gain.gain.exponentialRampToValueAtTime(0.0001, now + idx * 0.1 + 1.1);
 
         osc.connect(gain);
@@ -290,9 +295,6 @@ class TempleAudioEngine {
     } catch (_) {}
   }
 
-  // --------------------------------------------------------------------------
-  // 6. ZEROTTS VOICE QUEUE & PREFETCHER
-  // --------------------------------------------------------------------------
   enqueueTts(text, options = {}) {
     const onStart = typeof options.onStart === 'function' ? options.onStart : null;
     const onEnd = typeof options.onEnd === 'function' ? options.onEnd : null;
@@ -420,5 +422,3 @@ class TempleAudioEngine {
     });
   }
 }
-
-window.TempleAudioEngine = TempleAudioEngine;
