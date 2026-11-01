@@ -1,3 +1,5 @@
+import { STAGE_HEIGHT, STAGE_WIDTH } from './stageConfig.js';
+
 /**
  * Ultra-Low-CPU 2.5D Sacred Temple Canvas Particle Engine
  * Tối ưu hóa tối đa cho OBS / TikTok Live treo máy 24/7:
@@ -6,12 +8,12 @@
  * - Pre-render toàn bộ Khói hương, Hạt vàng, Cánh hoa sen ra Offscreen Canvas 1 lần duy nhất
  *   (KHÔNG gọi createRadialGradient, bezierCurveTo hay shadowBlur trong vòng lặp frame!)
  */
-class TempleParticleEngine {
+export class TempleParticleEngine {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: true, desynchronized: true });
-    this.width = 1080;
-    this.height = 1920;
+    this.width = STAGE_WIDTH;
+    this.height = STAGE_HEIGHT;
     this.canvas.width = this.width;
     this.canvas.height = this.height;
 
@@ -26,7 +28,7 @@ class TempleParticleEngine {
     this.smokeDensity = 1.0;
     this.time = 0;
     this.lastFrameTime = 0;
-    this.frameInterval = 1000 / 30; // Cố định 30 FPS siêu nhẹ CPU
+    this.frameInterval = 1000 / 30;
 
     this.buildOffscreenSprites();
     this.initAmbientParticles();
@@ -35,7 +37,6 @@ class TempleParticleEngine {
   }
 
   buildOffscreenSprites() {
-    // 1. Pre-render Smoke Puff Sprite (64x64)
     this.smokeSprite = document.createElement('canvas');
     this.smokeSprite.width = 64;
     this.smokeSprite.height = 64;
@@ -49,7 +50,6 @@ class TempleParticleEngine {
     sctx.arc(32, 32, 30, 0, Math.PI * 2);
     sctx.fill();
 
-    // 2. Pre-render Gold Spark Sprite (16x16)
     this.sparkSprite = document.createElement('canvas');
     this.sparkSprite.width = 16;
     this.sparkSprite.height = 16;
@@ -63,7 +63,6 @@ class TempleParticleEngine {
     gctx.arc(8, 8, 7, 0, Math.PI * 2);
     gctx.fill();
 
-    // 3. Pre-render Pink & Gold Lotus Petal Sprites (28x28)
     this.pinkPetalSprite = this.createPetalSprite('rgba(248, 165, 194, 0.82)');
     this.goldPetalSprite = this.createPetalSprite('rgba(255, 218, 110, 0.82)');
   }
@@ -212,7 +211,6 @@ class TempleParticleEngine {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.width, this.height);
 
-    // 1. Hạt bụi vàng (dùng drawImage từ sparkSprite đã pre-render)
     for (let i = 0; i < this.goldSparks.length; i++) {
       const sp = this.goldSparks[i];
       sp.y += sp.vy;
@@ -225,7 +223,6 @@ class TempleParticleEngine {
       ctx.drawImage(this.sparkSprite, sp.x - sp.size * 0.5, sp.y - sp.size * 0.5, sp.size, sp.size);
     }
 
-    // 2. Khói tâm hương (dùng drawImage từ smokeSprite đã pre-render)
     this.spawnSmokeFromTips();
     for (let i = this.smokeParticles.length - 1; i >= 0; i--) {
       const p = this.smokeParticles[i];
@@ -245,7 +242,6 @@ class TempleParticleEngine {
       ctx.drawImage(this.smokeSprite, p.x - r, p.y - r, r * 2, r * 2);
     }
 
-    // 3. Cánh hoa sen rơi (dùng drawImage từ petalSprite đã pre-render)
     ctx.globalAlpha = 1;
     for (let i = this.lotusPetals.length - 1; i >= 0; i--) {
       const petal = this.lotusPetals[i];
@@ -276,7 +272,6 @@ class TempleParticleEngine {
       ctx.restore();
     }
 
-    // 4. Sóng âm Đại Hồng Chung
     for (let i = this.soundWaves.length - 1; i >= 0; i--) {
       const w = this.soundWaves[i];
       w.radius += 10.5;
@@ -293,7 +288,6 @@ class TempleParticleEngine {
       ctx.stroke();
     }
 
-    // 5. Hạt pháo hoa sen
     for (let i = this.burstParticles.length - 1; i >= 0; i--) {
       const b = this.burstParticles[i];
       b.x += b.vx;
@@ -311,7 +305,6 @@ class TempleParticleEngine {
       ctx.fill();
     }
 
-    // 6. Chữ +Công Đức bay lên (dùng strokeText thay vì shadowBlur tốn CPU)
     if (this.floatingTexts.length > 0) {
       ctx.font = '800 27px "Be Vietnam Pro", sans-serif';
       ctx.textAlign = 'center';
@@ -335,5 +328,3 @@ class TempleParticleEngine {
     ctx.globalAlpha = 1;
   }
 }
-
-window.TempleParticleEngine = TempleParticleEngine;

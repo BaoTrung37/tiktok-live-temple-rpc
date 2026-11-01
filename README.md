@@ -1,6 +1,8 @@
 # 🪷 Chùa Linh Ứng Online — TikTok Live RPC (9:16 Interactive Buddhist Sanctuary)
 
-Hệ thống phát trực tiếp tương tác (**Interactive TikTok Live Stream & JSON-RPC 2.0**) chuẩn khung dọc **9:16 (`1080×1920`)** dành cho **OBS Studio / TikTok Live Studio**, chạy siêu nhẹ trên **Bun.js** và tích hợp giọng đọc AI tiếng Việt **ZeroTTS (`zeroweight-ai/ZeroTTS`)**.
+Hệ thống phát trực tiếp tương tác (**Interactive TikTok Live Stream & JSON-RPC 2.0**) chuẩn khung dọc **9:16 (`1080×1920`)** dành cho **OBS Studio / TikTok Live Studio**, chạy siêu nhẹ trên **Bun.js (Native ESM)** và tích hợp giọng đọc AI tiếng Việt **ZeroTTS (`zeroweight-ai/ZeroTTS`)**.
+
+> 🤖 **Dành cho AI Agent / Lập trình viên:** Xem toàn bộ kiến trúc module, bảng chỉ đường sửa code và đặc tả Data Structs / Wire Schemas tại **[`AGENTS.md`](./AGENTS.md)**.
 
 Người xem trên TikTok Live tương tác trực tiếp qua **Bình luận (Comment)**, **Thả tim (Like)**, **Chia sẻ / Follow** và **Tặng quà (Gift)** để thực hiện các nghi thức tâm linh trên màn hình Chánh Điện **Đức Phật A Di Đà**:
 - 🔥 **Thắp hương & Đảnh lễ Tam Bái (8-Frame Walking & Prostration)**: Nhân vật Phật tử mặc áo lam bước đi từng bước dọc thảm đỏ hoa sen lên trước Lư Hương Đỉnh Đồng, hạ gối quỳ và thực hiện 3 lạy Ngũ thể đầu địa hướng về Đức Phật A Di Đà.
@@ -28,17 +30,19 @@ Người xem trên TikTok Live tương tác trực tiếp qua **Bình luận (Co
 
 ## ⚡ Kiến Trúc & Tối Ưu Hóa Hiệu Suất (Siêu Nhẹ CPU/GPU)
 
-- **Runtime**: Chạy trực tiếp trên **Bun.js** (`~0.1% CPU` khi chờ).
-- **Canvas Particle Engine (`public/js/particles.js`)**:
+- **Kiến trúc Modular Monolith 3 Vùng Năng Lực (`src/sanctuary`, `src/integrations`, `src/rpc`)**:
+  - 100% **Native ES Modules (`"type": "module"`)** đồng nhất từ Bun.js Backend tới Browser Frontend (Zero-Build).
+  - Toàn bộ nghiệp vụ chùa (`src/sanctuary/`) thuần hàm, không dính I/O mạng hay Python, kiểm thử tự động với `bun test` trong `<15ms`.
+- **Canvas Particle Engine (`public/js/stage/particleCanvas.js`)**:
   - Khóa tốc độ vẽ ở **30 FPS** ổn định, tự động tạm dừng khi ẩn tab (`document.hidden`).
   - Pre-render toàn bộ Khói hương, Hạt vàng và Cánh hoa sen ra Offscreen Canvas 1 lần duy nhất lúc khởi tạo (`drawImage`), không gọi `createRadialGradient` hay `shadowBlur` trong vòng lặp frame.
-- **Zero-Flicker 8-Frame Sprite Stack (`public/js/live.js` & `public/css/live.css`)**:
-  - Nạp sẵn cả 8 khung hình chuyển động (`walk1`, `walk2`, `kneelDown`, `kneel`, `forehead`, `bowMid`, `prostrate`, `prostrateDeep`) vào GPU với bóng đổ (drop-shadow) đã bake sẵn trong PNG, loại bỏ hoàn toàn hiện tượng nháy/mất hình khi chuyển tư thế.
-- **ZeroTTS Worker (`tts_worker.py`)**:
-  - Tiến trình Python thường trú nạp sẵn model `zeroweight-ai/ZeroTTS` (`intra_op_num_threads=3`, `OMP_WAIT_POLICY=PASSIVE` → **`0.0% CPU` khi chờ**).
+- **Zero-Flicker 8-Frame Sprite Stack (`public/js/stage/sanctuaryStage.js` & `public/css/live.css`)**:
+  - Nạp sẵn cả 8 khung hình chuyển động (`walk1`, `walk2`, `kneelDown`, `kneel`, `forehead`, `bowMid`, `prostrate`, `prostrateDeep`) vào GPU với bóng đổ đã bake sẵn trong PNG, loại bỏ hoàn toàn hiện tượng nháy hình khi chuyển tư thế.
+- **ZeroTTS Sidecar (`python/tts_worker.py` & `src/integrations/zeroTts.js`)**:
+  - Tiến trình Python thường trú nạp sẵn model `zeroweight-ai/ZeroTTS` (`intra_op_num_threads=3`, `OMP_WAIT_POLICY=PASSIVE` → **`0.0% CPU` khi chờ**), kèm cơ chế tự động dọn cache `.wav` theo chuẩn LRU (giới hạn 300 file).
   - Tổng hợp nguyên câu trong 1 lần gọi (`single-pass synthesis`), khử DC offset, chuẩn hóa đỉnh âm lượng (`peak <= 0.90`) và làm mượt 2 đầu sóng âm (`cosine fade-in/out`) chống xước/rè tiếng.
-- **Bộ Lọc Chặn Ký Tự Lạ & Spam (`server.js` & `tts_worker.py`)**:
-  - Chặn tự động các ký tự Cuneiform (`𒐫`), chữ Ả Rập gây lag, Braille, Zalgo, bình luận chỉ toàn dấu chấm (`...`) hoặc từ ngữ phản cảm.
+- **Bộ Lọc Chặn Ký Tự Lạ & Spam (`src/sanctuary/sanitizer.js` & `python/tts_worker.py`)**:
+  - Chặn tự động các ký tự Cuneiform (`𒐫`), Braille, Zalgo, bình luận chỉ toàn dấu chấm (`...`) hoặc từ ngữ phản cảm / lừa đảo.
   - Tự động chuẩn hóa Unicode (`NFKC` → `NFC`) chuyển tên kiểu chữ toán học về tiếng Việt sạch trước khi đọc TTS.
 
 ---
@@ -47,23 +51,29 @@ Người xem trên TikTok Live tương tác trực tiếp qua **Bình luận (Co
 
 ### 1. Yêu cầu hệ thống
 - [Bun.js](https://bun.sh/) (`>= 1.1`)
-- Python `3.10+` & [`uv`](https://github.com/astral-sh/uv) (để tạo môi trường `.venv` chạy `zerotts`)
+- Python `3.10–3.12` & [`uv`](https://github.com/astral-sh/uv) (để tạo môi trường `.venv` chạy `zerotts`)
 
 ### 2. Cài đặt thư viện
 ```bash
-# Cài đặt dependencies cho Bun / Node
+# Cài đặt dependencies cho Bun
 bun install
 
-# Tạo môi trường Python .venv và cài đặt ZeroTTS
-uv venv .venv
-uv pip install --python .venv/bin/python zerotts pillow
+# Tạo môi trường Python .venv (khuyến nghị Python 3.12 cho onnxruntime) và cài đặt từ requirements.txt
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -r requirements.txt
 ```
 
-### 3. Khởi chạy Server
+### 3. Khởi chạy & Kiểm thử
 ```bash
+# Chạy máy chủ chính thức (mặc định PORT=3000, có thể đổi: PORT=3100 bun start)
 bun start
-# Hoặc chế độ tự động reload khi sửa code:
+
+# Chế độ tự động reload khi phát triển
 bun run dev
+
+# Kiểm tra cú pháp ESM & chạy bộ Unit/RPC Test
+bun run check
+bun test
 ```
 
 Mặc định server chạy tại cổng `3000`:
@@ -133,39 +143,33 @@ curl -X POST http://localhost:3000/rpc \
   }'
 ```
 
-### Danh sách JSON-RPC Methods hỗ trợ:
-- `temple.getState`: Lấy toàn bộ trạng thái Chánh Điện và Bảng Vàng Công Đức.
-- `temple.burnIncense`: Thắp nhang & bước lên đảnh lễ (`user`, `avatar`, `count`, `wish`).
-- `temple.sendPrayer`: Thả đèn hoa đăng cầu nguyện (`user`, `avatar`, `wish`).
-- `temple.drawFortune`: Lắc ống xăm & gieo quẻ (`user`, `avatar`, `topic`).
-- `temple.strikeWoodenFish`: Gõ mõ tích công đức (`user`, `count`).
-- `temple.ringBell`: Thỉnh Đại Hồng Chung (`user`, `count`, `wish`).
-- `temple.offerGift`: Dâng lễ vật (`user`, `giftType`: `lotus` | `fruit` | `lamp` | `dragon`, `coins`, `giftName`).
-- `temple.grandCeremony`: Kích hoạt Đại Lễ Kim Long Chầu Phật (`user`, `coins`, `giftName`).
-- `temple.updateSettings`: Cập nhật âm lượng nhạc nền (`musicVolume`), giọng đọc (`ttsVolume`), bật/tắt TTS.
-- `temple.resetMerit`: Đặt lại bảng thống kê Công Đức.
-- `live.connect` / `live.disconnect`: Kết nối / Ngắt kết nối phòng TikTok Live.
+### Danh sách 16 JSON-RPC Methods hỗ trợ:
+- `temple.getState`, `temple.burnIncense`, `temple.sendPrayer`, `temple.drawFortune`, `temple.strikeWoodenFish`, `temple.ringBell`, `temple.offerGift`, `temple.grandCeremony`, `temple.comment`, `temple.updateSettings`, `temple.resetMerit`, `temple.speak`, `temple.ttsStatus`, `live.connect`, `live.disconnect`, `live.setAutoSim`.
 
 ---
 
 ## 📁 Cấu Trúc Thư Mục
 
 ```text
-├── server.js                  # Bun.js HTTP + WebSocket JSON-RPC 2.0 Server & TikTok Live Connector
-├── tts_worker.py              # Tiến trình Python ZeroTTS thường trú (48kHz, chống rè/clipping, lọc ký tự lạ)
-├── data/
-│   ├── merit-state.json       # Lưu trữ bền vững Bảng Vàng Công Đức của người xem thật
-│   └── tts-cache/             # Bộ đệm file âm thanh WAV đã tổng hợp
+├── AGENTS.md                  # Tài liệu Kiến trúc, Data Structs & Bảng chỉ đường cho AI Agent
+├── GEMINI.md                  # Cấu hình nạp ngữ cảnh nhanh cho Antigravity / Gemini
+├── server.js                  # Entrypoint lắp ráp hệ thống & đóng tiến trình an toàn
+├── requirements.txt           # Danh sách thư viện Python cho môi trường .venv
+├── src/
+│   ├── config.js              # Cấu hình biến môi trường & đường dẫn tập trung
+│   ├── sanctuary/             # Vùng nghiệp vụ Chùa thuần túy (fortunes, rules, sanitizer, stateStore, rituals)
+│   ├── integrations/          # Kết nối ngoại vi (zeroTts, tiktokLive, autoSim)
+│   └── rpc/                   # Định tuyến 16 JSON-RPC 2.0 methods & Express/WebSocket transport
+├── python/
+│   └── tts_worker.py          # Tiến trình Python ZeroTTS thường trú (48kHz ONNX, chống clipping)
 ├── public/
 │   ├── index.html             # Giao diện Chánh Điện 9:16 + Bảng điều khiển nhanh
-│   ├── admin.html             # Trang quản trị JSON-RPC 2.0 đầy đủ
-│   ├── css/live.css           # Stylesheet tối ưu GPU Compositor
-│   ├── js/
-│   │   ├── live.js            # Điều phối 8-frame prostration, Đạo Tràng 40 chỗ ngồi & WebSocket RPC
-│   │   ├── particles.js       # 30 FPS Offscreen-Sprite Particle Engine (Khói hương, Hoa sen, Sóng âm)
-│   │   └── audio.js           # Quản lý nhạc nền auto-ducking, Pháp khí Web Audio & hàng đợi đồng bộ TTS
-│   └── assets/                # Hình nền Đức Phật A Di Đà, 8 frame Phật tử áo lam & nhạc nền
-└── docs/
-    ├── demo/                  # Hình ảnh chụp màn hình demo thực tế
-    └── superpowers/specs/     # Tài liệu thiết kế kỹ thuật (Design Spec)
+│   ├── admin.html             # Trang quản trị JSON-RPC 2.0
+│   ├── css/                   # live.css (khung 9:16 GPU Compositor) & admin.css
+│   ├── js/                    # Native ESM: liveApp.js, adminApp.js, shared/, stage/, ui/
+│   └── assets/                # Hình nền Đức Phật A Di Đà & 8 frame Phật tử áo lam
+├── tests/                     # Bộ Unit & RPC Integration Tests (`bun test`)
+└── data/
+    ├── merit-state.json       # Lưu trữ bền vững Bảng Vàng Công Đức
+    └── tts-cache/             # Bộ đệm file âm thanh WAV (tự động dọn LRU)
 ```
