@@ -78,7 +78,49 @@
     particles.setIncenseTips(tips);
   }
 
-  // 4. Dựng Hàng 6 Đệm Quỳ VIP (Top 6 Thí Chủ trên bục gỗ y=1188)
+  // Preload toàn bộ 8 frame nhân vật vào bộ nhớ để chuyển frame mượt 0ms
+  const SPRITE_FRAMES = {
+    walk1: '/assets/devotee_walk.png',
+    walk2: '/assets/devotee_walk_2.png',
+    kneelDown: '/assets/devotee_kneel_down.png',
+    kneel: '/assets/devotee.png',
+    forehead: '/assets/devotee_bow.png',
+    bowMid: '/assets/devotee_bow_mid.png',
+    prostrate: '/assets/devotee_prostrate.png',
+    prostrateDeep: '/assets/devotee_prostrate_deep.png'
+  };
+  const KNEELING_POSE_KEYS = ['kneel', 'forehead', 'bowMid', 'prostrate', 'prostrateDeep'];
+
+  Object.values(SPRITE_FRAMES).forEach((url) => {
+    const img = new Image();
+    img.src = url;
+  });
+
+  function createPoseStackElement() {
+    const stackEl = document.createElement('div');
+    stackEl.className = 'seat-pose-stack';
+    const frames = {};
+    for (const poseKey of KNEELING_POSE_KEYS) {
+      const img = document.createElement('img');
+      img.src = SPRITE_FRAMES[poseKey];
+      img.alt = '';
+      img.decoding = 'async';
+      img.setAttribute('data-pose', poseKey);
+      img.className =
+        poseKey === 'kneel'
+          ? 'devotee-sprite seat-pose-frame active'
+          : 'devotee-sprite seat-pose-frame';
+      stackEl.appendChild(img);
+      frames[poseKey] = img;
+    }
+    return { stackEl, frames };
+  }
+
+  function randInt(min, max) {
+    return min + Math.floor(Math.random() * (max - min + 1));
+  }
+
+  // 4. Dựng Hàng 6 Đệm Quỳ VIP Bền Vững (Top 6 Thí Chủ trên bục gỗ y=1188, không bị reset khi update state)
   const VIP_CUSHION_COORDS = [
     { x: 140, y: 1188, rank: 1 },
     { x: 268, y: 1188, rank: 2 },
@@ -87,31 +129,92 @@
     { x: 812, y: 1188, rank: 5 },
     { x: 940, y: 1188, rank: 6 }
   ];
+  const vipCushionsLayer = document.getElementById('vipCushionsLayer');
+  const vipSlots = [];
+
+  (function initVipCushionSlots() {
+    if (!vipCushionsLayer) return;
+    vipCushionsLayer.innerHTML = '';
+    VIP_CUSHION_COORDS.forEach((coord, idx) => {
+      const slotEl = document.createElement('div');
+      slotEl.className = 'vip-devotee-slot';
+      slotEl.dataset.vipRank = String(coord.rank);
+      slotEl.hidden = true;
+      slotEl.style.left = `${coord.x}px`;
+      slotEl.style.top = `${coord.y}px`;
+      slotEl.style.zIndex = String(12 + idx);
+
+      const { stackEl, frames } = createPoseStackElement();
+
+      const pillEl = document.createElement('div');
+      pillEl.className = 'vip-rank-pill';
+      const numEl = document.createElement('span');
+      numEl.className = 'vip-rank-num';
+      numEl.textContent = String(coord.rank);
+      const nameEl = document.createElement('span');
+      nameEl.className = 'vip-rank-name';
+      pillEl.append(numEl, nameEl);
+
+      slotEl.append(stackEl, pillEl);
+      vipCushionsLayer.appendChild(slotEl);
+
+      vipSlots.push({
+        id: `vip-${idx}`,
+        kind: 'vip',
+        index: idx,
+        side: idx < 3 ? 'L' : 'R',
+        row: -1,
+        col: idx < 3 ? idx : idx - 3,
+        el: slotEl,
+        frames,
+        nameEl,
+        lastRenderedName: '',
+        currentPose: 'kneel',
+        occupied: false,
+        hasViewerBadge: false,
+        busy: false,
+        busyOrigin: 'idle',
+        cooldownUntil: 0,
+        timers: []
+      });
+    });
+  })();
 
   function renderVipCushions(leaderboard = []) {
-    const layer = document.getElementById('vipCushionsLayer');
-    if (!layer) return;
-
-    layer.innerHTML = VIP_CUSHION_COORDS.map((slot, idx) => {
+    if (!vipSlots.length) return;
+    for (let idx = 0; idx < vipSlots.length; idx++) {
+      const slot = vipSlots[idx];
       const dev = leaderboard[idx];
-      if (!dev) return '';
-      return `
-        <div class="vip-devotee-slot" style="left: ${slot.x}px; top: ${slot.y}px; z-index: ${12 + idx};">
-          <img src="/assets/devotee.png" alt="VIP Devotee" class="devotee-sprite" />
-          <div class="vip-rank-pill">
-            <span class="vip-rank-num">${slot.rank}</span>
-            <span class="vip-rank-name">${escapeHtml(shortenName(dev.name, 12))}</span>
-          </div>
-        </div>
-      `;
-    }).join('');
+      if (dev) {
+        const shortName = shortenName(dev.name, 12);
+        if (slot.lastRenderedName !== shortName) {
+          slot.nameEl.textContent = shortName;
+          slot.lastRenderedName = shortName;
+        }
+        slot.el.hidden = false;
+        slot.occupied = true;
+        slot.hasViewerBadge = true;
+      } else {
+        if (slot.occupied) {
+          clearSlotAnimation(slot);
+        }
+        slot.occupied = false;
+        slot.hasViewerBadge = false;
+        slot.lastRenderedName = '';
+        slot.el.hidden = true;
+      }
+    }
   }
 
-  // 5. Dựng Đạo Tràng 40 Phật Tử Quỳ Lễ Hai Bên Thảm Đỏ (5 Hàng x 4 Cột mỗi bên)
+  // 5. Dựng Đạo Tràng 40 Phật Tử Quỳ Lễ Hai Bên Thảm Đỏ (DOM Bền Vững 5 Hàng x 4 Cột mỗi bên)
   const congregationHall = document.getElementById('congregationHall');
   const HALL_SEAT_COORDS = [];
+  const LABELED_SEAT_INDICES = [
+    3, 4, 11, 12, 19, 20, 27, 28, 35, 36, 2, 5, 10, 13, 18, 21, 26, 29
+  ];
+  const hallSlots = [];
 
-  (function buildHallGrid() {
+  (function buildHallGridAndSeats() {
     const rows = 5;
     const colsPerSide = 4;
     for (let r = 0; r < rows; r++) {
@@ -137,92 +240,339 @@
         HALL_SEAT_COORDS.push({ side: 'R', row: r, col: c, x, y, scale });
       }
     }
+
+    if (!congregationHall) return;
+    congregationHall.innerHTML = '';
+
+    HALL_SEAT_COORDS.forEach((seat, idx) => {
+      const seatEl = document.createElement('div');
+      seatEl.className = 'hall-seat';
+      seatEl.dataset.seatIdx = String(idx);
+      seatEl.style.left = `${seat.x}px`;
+      seatEl.style.top = `${seat.y}px`;
+      seatEl.style.zIndex = String(20 + seat.row * 2);
+      seatEl.style.transform = `translate(-50%, -100%) scale(${seat.scale})`;
+
+      const { stackEl, frames } = createPoseStackElement();
+
+      const badgeEl = document.createElement('div');
+      badgeEl.className = 'seat-badge';
+      badgeEl.hidden = true;
+      const avatarEl = document.createElement('span');
+      avatarEl.className = 'seat-avatar';
+      const usernameEl = document.createElement('span');
+      usernameEl.className = 'seat-username';
+      badgeEl.append(avatarEl, usernameEl);
+
+      seatEl.append(stackEl, badgeEl);
+      congregationHall.appendChild(seatEl);
+
+      hallSlots.push({
+        id: `hall-${idx}`,
+        kind: 'hall',
+        index: idx,
+        side: seat.side,
+        row: seat.row,
+        col: seat.col,
+        el: seatEl,
+        frames,
+        badgeEl,
+        avatarEl,
+        usernameEl,
+        lastBadgeKey: '',
+        currentPose: 'kneel',
+        occupied: true,
+        hasViewerBadge: false,
+        busy: false,
+        busyOrigin: 'idle',
+        cooldownUntil: 0,
+        timers: []
+      });
+    });
   })();
 
   let lastRenderedLeaderboardJson = '';
 
   function renderCongregationHall(leaderboard = []) {
-    if (!congregationHall) return;
+    if (!hallSlots.length) return;
     // Những người xếp từ hạng 7 trở đi ngồi ở các vị trí đầu tiên cạnh thảm đỏ
-    const hallViewers = leaderboard.slice(6);
-    const sig = JSON.stringify(hallViewers.map((d) => `${d.name}:${d.merit}`));
-    if (sig === lastRenderedLeaderboardJson && congregationHall.children.length > 0) return;
+    const hallViewers = leaderboard.slice(6, 6 + LABELED_SEAT_INDICES.length);
+    const sig = JSON.stringify(hallViewers.map((d) => `${d.name}:${d.avatar || ''}`));
+    if (sig === lastRenderedLeaderboardJson) return;
     lastRenderedLeaderboardJson = sig;
 
-    // Ưu tiên gắn thẻ tên vào các ghế gần thảm đỏ dễ nhìn nhất
-    const labeledSeatIndices = [
-      3, 4, 11, 12, 19, 20, 27, 28, 35, 36, 2, 5, 10, 13, 18, 21, 26, 29
-    ];
     const seatViewerMap = new Map();
     hallViewers.forEach((viewer, idx) => {
-      if (idx < labeledSeatIndices.length) {
-        seatViewerMap.set(labeledSeatIndices[idx], viewer);
-      }
+      seatViewerMap.set(LABELED_SEAT_INDICES[idx], viewer);
     });
 
-    congregationHall.innerHTML = HALL_SEAT_COORDS.map((seat, idx) => {
+    for (let idx = 0; idx < hallSlots.length; idx++) {
+      const slot = hallSlots[idx];
       const viewer = seatViewerMap.get(idx);
-      const badgeHtml = viewer
-        ? `
-          <div class="seat-badge">
-            <span class="seat-avatar">${
-              viewer.avatar
-                ? `<img src="${escapeHtml(viewer.avatar)}" alt="" />`
-                : escapeHtml(String(viewer.name || 'P').charAt(0).toUpperCase())
-            }</span>
-            <span class="seat-username">${escapeHtml(shortenName(viewer.name, 11))}</span>
-          </div>
-        `
-        : '';
-
-      return `
-        <div
-          class="hall-seat"
-          data-seat-idx="${idx}"
-          style="left: ${seat.x}px; top: ${seat.y}px; z-index: ${20 + seat.row * 2}; transform: translate(-50%, -100%) scale(${seat.scale});"
-        >
-          <img
-            src="/assets/devotee.png"
-            alt="Phật tử"
-            class="devotee-sprite"
-            style="animation-delay: ${((idx * 0.27) % 3.5).toFixed(2)}s;"
-          />
-          ${badgeHtml}
-        </div>
-      `;
-    }).join('');
+      if (viewer) {
+        const badgeKey = `${viewer.name}::${viewer.avatar || ''}`;
+        if (slot.lastBadgeKey !== badgeKey) {
+          slot.lastBadgeKey = badgeKey;
+          slot.usernameEl.textContent = shortenName(viewer.name, 11);
+          if (viewer.avatar) {
+            const avImg = document.createElement('img');
+            avImg.src = viewer.avatar;
+            avImg.alt = '';
+            slot.avatarEl.replaceChildren(avImg);
+          } else {
+            slot.avatarEl.textContent = String(viewer.name || 'P').charAt(0).toUpperCase();
+          }
+        }
+        slot.badgeEl.hidden = false;
+        slot.hasViewerBadge = true;
+      } else {
+        slot.lastBadgeKey = '';
+        slot.badgeEl.hidden = true;
+        slot.hasViewerBadge = false;
+      }
+    }
   }
 
-  // Preload toàn bộ 8 frame nhân vật vào bộ nhớ để chuyển frame mượt 0ms
-  const SPRITE_FRAMES = {
-    walk1: '/assets/devotee_walk.png',
-    walk2: '/assets/devotee_walk_2.png',
-    kneelDown: '/assets/devotee_kneel_down.png',
-    kneel: '/assets/devotee.png',
-    forehead: '/assets/devotee_bow.png',
-    bowMid: '/assets/devotee_bow_mid.png',
-    prostrate: '/assets/devotee_prostrate.png',
-    prostrateDeep: '/assets/devotee_prostrate_deep.png'
-  };
-  Object.values(SPRITE_FRAMES).forEach((url) => {
-    const img = new Image();
-    img.src = url;
+  // 5B. Bộ Điều Phối Lạy Phật Ngẫu Nhiên Tự Nhiên & Sóng Hành Lễ (KneelingProstrationDirector)
+  const allKneelingSlots = [...vipSlots, ...hallSlots];
+  const MAX_CONCURRENT_AMBIENT_BOWS = 5;
+  const AMBIENT_TICK_MIN_MS = 1000;
+  const AMBIENT_TICK_MAX_MS = 2200;
+  let ambientTickTimer = null;
+
+  function setSlotPose(slot, poseKey) {
+    if (!slot || slot.currentPose === poseKey) return;
+    const prev = slot.frames[slot.currentPose];
+    const next = slot.frames[poseKey];
+    if (prev) prev.classList.remove('active');
+    if (next) next.classList.add('active');
+    slot.currentPose = poseKey;
+  }
+
+  function clearSlotAnimation(slot) {
+    if (!slot) return;
+    while (slot.timers.length > 0) {
+      clearTimeout(slot.timers.pop());
+    }
+    slot.busy = false;
+    slot.busyOrigin = 'idle';
+    setSlotPose(slot, 'kneel');
+  }
+
+  function scheduleSlotPose(slot, delayMs, poseKey) {
+    const tid = setTimeout(() => {
+      setSlotPose(slot, poseKey);
+    }, Math.max(0, Math.round(delayMs)));
+    slot.timers.push(tid);
+  }
+
+  function finishSlotSequence(slot, finishMs, cooldownMinMs, cooldownMaxMs) {
+    const tid = setTimeout(() => {
+      slot.timers.length = 0;
+      setSlotPose(slot, 'kneel');
+      slot.busy = false;
+      slot.busyOrigin = 'idle';
+      slot.cooldownUntil = Date.now() + randInt(cooldownMinMs, cooldownMaxMs);
+    }, Math.max(0, Math.round(finishMs)));
+    slot.timers.push(tid);
+  }
+
+  function playSlotProstration(slot, style = 'fullBow', origin = 'ambient', initialDelayMs = 0) {
+    if (!slot || !slot.occupied) return;
+    while (slot.timers.length > 0) {
+      clearTimeout(slot.timers.pop());
+    }
+    slot.busy = true;
+    slot.busyOrigin = origin;
+
+    const speed = 0.9 + Math.random() * 0.24;
+    let t = Math.max(0, initialDelayMs);
+
+    if (style === 'prayerNod') {
+      // Khấn vái nhẹ thành tâm (~20%)
+      scheduleSlotPose(slot, t, 'forehead');
+      t += randInt(330, 440) * speed;
+      scheduleSlotPose(slot, t, 'bowMid');
+      t += randInt(450, 650) * speed;
+      scheduleSlotPose(slot, t, 'forehead');
+      t += 250 * speed;
+      finishSlotSequence(
+        slot,
+        t,
+        origin === 'wave' ? 2400 : 5500,
+        origin === 'wave' ? 5000 : 11000
+      );
+      return;
+    }
+
+    if (style === 'threeBows') {
+      // Đảnh lễ Tam Bái 3 lạy liên tiếp (~10%, ưu tiên VIP & ghế có tên người xem)
+      for (let cycle = 0; cycle < 3; cycle++) {
+        scheduleSlotPose(slot, t, 'forehead');
+        t += 200 * speed;
+        scheduleSlotPose(slot, t, 'bowMid');
+        t += 170 * speed;
+        scheduleSlotPose(slot, t, 'prostrate');
+        t += 170 * speed;
+        scheduleSlotPose(slot, t, 'prostrateDeep');
+        t += randInt(480, 680);
+        scheduleSlotPose(slot, t, 'prostrate');
+        t += 180 * speed;
+        scheduleSlotPose(slot, t, 'bowMid');
+        t += 180 * speed;
+        scheduleSlotPose(slot, t, 'kneel');
+        t += 320 * speed;
+      }
+      scheduleSlotPose(slot, t, 'forehead');
+      t += 280 * speed;
+      finishSlotSequence(slot, t, 11000, 18000);
+      return;
+    }
+
+    // Mặc định: Lạy sát đất Ngũ thể đầu địa (~70%)
+    scheduleSlotPose(slot, t, 'forehead');
+    t += 220 * speed;
+    scheduleSlotPose(slot, t, 'bowMid');
+    t += 180 * speed;
+    scheduleSlotPose(slot, t, 'prostrate');
+    t += 180 * speed;
+    scheduleSlotPose(slot, t, 'prostrateDeep');
+    t += origin === 'wave' ? randInt(380, 560) : randInt(580, 900);
+    scheduleSlotPose(slot, t, 'prostrate');
+    t += 190 * speed;
+    scheduleSlotPose(slot, t, 'bowMid');
+    t += 190 * speed;
+    scheduleSlotPose(slot, t, 'forehead');
+    t += 220 * speed;
+    finishSlotSequence(
+      slot,
+      t,
+      origin === 'wave' ? 2500 : 7000,
+      origin === 'wave' ? 5500 : 14000
+    );
+  }
+
+  function pickAmbientBowStyle(slot) {
+    const r = Math.random();
+    if (slot.kind === 'vip' || slot.hasViewerBadge) {
+      if (r < 0.65) return 'fullBow';
+      if (r < 0.82) return 'prayerNod';
+      return 'threeBows';
+    }
+    if (r < 0.72) return 'fullBow';
+    if (r < 0.93) return 'prayerNod';
+    return 'threeBows';
+  }
+
+  function hasBusyImmediateNeighbor(candidate) {
+    for (let i = 0; i < allKneelingSlots.length; i++) {
+      const other = allKneelingSlots[i];
+      if (
+        other !== candidate &&
+        other.busy &&
+        other.kind === candidate.kind &&
+        other.side === candidate.side &&
+        other.row === candidate.row &&
+        Math.abs(other.col - candidate.col) <= 1
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function pickWeightedCandidate(pool) {
+    if (!pool.length) return null;
+    let totalWeight = 0;
+    for (let i = 0; i < pool.length; i++) {
+      const s = pool[i];
+      totalWeight += s.kind === 'vip' ? 2.2 : s.hasViewerBadge ? 1.6 : 1.0;
+    }
+    let roll = Math.random() * totalWeight;
+    for (let i = 0; i < pool.length; i++) {
+      const s = pool[i];
+      const w = s.kind === 'vip' ? 2.2 : s.hasViewerBadge ? 1.6 : 1.0;
+      roll -= w;
+      if (roll <= 0) return s;
+    }
+    return pool[pool.length - 1];
+  }
+
+  function runAmbientProstrationTick() {
+    ambientTickTimer = null;
+    if (document.hidden) return;
+
+    const now = Date.now();
+    let activeAmbientCount = 0;
+    for (let i = 0; i < allKneelingSlots.length; i++) {
+      const s = allKneelingSlots[i];
+      if (s.busy && s.busyOrigin === 'ambient') activeAmbientCount++;
+    }
+
+    const freeCapacity = MAX_CONCURRENT_AMBIENT_BOWS - activeAmbientCount;
+    if (freeCapacity > 0) {
+      const wantTwoChance = activeAmbientCount <= 1 ? 0.65 : 0.35;
+      const pickCount = Math.min(freeCapacity, Math.random() < wantTwoChance ? 2 : 1);
+
+      for (let p = 0; p < pickCount; p++) {
+        const eligible = [];
+        const spacedEligible = [];
+        for (let i = 0; i < allKneelingSlots.length; i++) {
+          const s = allKneelingSlots[i];
+          if (!s.occupied || s.busy || now < s.cooldownUntil) continue;
+          eligible.push(s);
+          if (!hasBusyImmediateNeighbor(s)) spacedEligible.push(s);
+        }
+
+        const chosen = pickWeightedCandidate(spacedEligible.length ? spacedEligible : eligible);
+        if (!chosen) break;
+
+        const staggerMs = p === 0 ? 0 : randInt(260, 680);
+        playSlotProstration(chosen, pickAmbientBowStyle(chosen), 'ambient', staggerMs);
+      }
+    }
+
+    scheduleNextAmbientTick(randInt(AMBIENT_TICK_MIN_MS, AMBIENT_TICK_MAX_MS));
+  }
+
+  function scheduleNextAmbientTick(delayMs) {
+    if (ambientTickTimer !== null) {
+      clearTimeout(ambientTickTimer);
+      ambientTickTimer = null;
+    }
+    if (document.hidden) return;
+    ambientTickTimer = setTimeout(runAmbientProstrationTick, delayMs);
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      if (ambientTickTimer !== null) {
+        clearTimeout(ambientTickTimer);
+        ambientTickTimer = null;
+      }
+      for (let i = 0; i < allKneelingSlots.length; i++) {
+        if (allKneelingSlots[i].busy) {
+          clearSlotAnimation(allKneelingSlots[i]);
+        }
+      }
+    } else {
+      scheduleNextAmbientTick(650);
+    }
   });
 
-  function pulseHallBowing() {
-    if (!congregationHall) return;
-    const seats = congregationHall.querySelectorAll('.hall-seat');
-    seats.forEach((el, i) => {
-      if (i % 4 !== 0) return;
-      const img = el.querySelector('.devotee-sprite');
-      if (!img) return;
-      const delay = (i % 4) * 80;
-      setTimeout(() => { img.src = SPRITE_FRAMES.forehead; }, delay);
-      setTimeout(() => { img.src = SPRITE_FRAMES.bowMid; }, delay + 140);
-      setTimeout(() => { img.src = SPRITE_FRAMES.prostrateDeep; }, delay + 300);
-      setTimeout(() => { img.src = SPRITE_FRAMES.bowMid; }, delay + 620);
-      setTimeout(() => { img.src = SPRITE_FRAMES.kneel; }, delay + 780);
-    });
+  // Khởi động nhịp hành lễ ngẫu nhiên tự nhiên dưới Chánh Điện
+  scheduleNextAmbientTick(850);
+
+  function pulseHallBowing(intensity = 'normal') {
+    const joinProbability = intensity === 'grand' ? 0.65 : 0.3;
+    for (let i = 0; i < allKneelingSlots.length; i++) {
+      const slot = allKneelingSlots[i];
+      if (!slot.occupied || slot.busy) continue;
+      if (Math.random() > joinProbability) continue;
+      const waveRowIndex = slot.row + 1; // VIP (row -1 -> 0) dẫn đầu, tiếp theo hàng 0 -> 4
+      const waveDelay = waveRowIndex * 90 + randInt(0, 75);
+      playSlotProstration(slot, 'fullBow', 'wave', waveDelay);
+    }
   }
 
   let prostrationTimers = [];
@@ -486,14 +836,14 @@
 
       case 'strikeWoodenFish': {
         audio.playWoodenFish();
-        pulseHallBowing();
+        pulseHallBowing('normal');
         particles.spawnFloatingMerit(`+${ev.merit} Công Đức`, 890, 935, '#ffd54f');
         break;
       }
 
       case 'ringBell': {
         audio.playTempleBell(1.0);
-        pulseHallBowing();
+        pulseHallBowing('grand');
         particles.spawnBellWave(540, 510, 4);
         particles.spawnFloatingMerit(`+${ev.merit} Công Đức`, 190, 935, '#fff3b0');
         updateCentralWorshipper(ev.user, ev.avatar, `🔔 Thỉnh Đại Hồng Chung (+${ev.merit} CĐ)`, ev.wish);
@@ -521,7 +871,7 @@
         audio.playTempleBell(1.2);
         setTimeout(() => audio.playTempleBell(1.1), 900);
         particles.spawnGrandCeremonyRain();
-        pulseHallBowing();
+        pulseHallBowing('grand');
         showGrandCeremonyBanner(ev.user, ev.giftName, ev.merit);
         animateWalkerOnCarpet(ev.user, ev.avatar, `🐉 ${ev.giftName} (+${ev.merit} CĐ)`, ev.wish);
         break;
