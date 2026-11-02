@@ -535,12 +535,40 @@ body.obs-mode .stage-wrapper {
   align-items: center;
 }
 
-.vip-devotee-slot .devotee-sprite {
+.vip-devotee-slot[hidden] {
+  display: none !important;
+}
+
+.vip-devotee-slot .devotee-sprite,
+.vip-devotee-slot .seat-pose-stack {
   width: 102px;
   height: 132px;
 }
 
+/* Stack 5 khung hình quỳ & lạy Phật dùng chung cho Đệm Quỳ VIP và Đạo Tràng (0ms GPU opacity, không nháy hình) */
+.seat-pose-stack {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+.seat-pose-stack .seat-pose-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.seat-pose-stack .seat-pose-frame.active {
+  opacity: 1;
+}
+
 .vip-rank-pill {
+  position: relative;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -590,12 +618,15 @@ body.obs-mode .stage-wrapper {
   align-items: center;
 }
 
-.hall-seat .devotee-sprite {
+.hall-seat .devotee-sprite,
+.hall-seat .seat-pose-stack {
   width: 92px;
   height: 120px;
 }
 
 .seat-badge {
+  position: relative;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -605,6 +636,10 @@ body.obs-mode .stage-wrapper {
   border: 1px solid rgba(244, 193, 80, 0.68);
   margin-top: -12px;
   white-space: nowrap;
+}
+
+.seat-badge[hidden] {
+  display: none !important;
 }
 
 .seat-avatar {

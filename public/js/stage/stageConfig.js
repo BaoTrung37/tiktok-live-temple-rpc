@@ -15,6 +15,12 @@ export const SPRITE_FRAMES = {
   prostrateDeep: '/assets/devotee_prostrate_deep.png'
 };
 
+export const KNEELING_POSE_KEYS = ['kneel', 'forehead', 'bowMid', 'prostrate', 'prostrateDeep'];
+
+export function randInt(min, max) {
+  return min + Math.floor(Math.random() * (max - min + 1));
+}
+
 export const VIP_CUSHION_COORDS = [
   { x: 140, y: 1188, rank: 1 },
   { x: 268, y: 1188, rank: 2 },
