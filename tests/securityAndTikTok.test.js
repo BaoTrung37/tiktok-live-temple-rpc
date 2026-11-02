@@ -6,12 +6,18 @@ import {
 } from '../src/integrations/tiktokLive.js';
 
 describe('security & TikTok integration helpers', () => {
-  test('isAllowedOrigin chỉ chấp nhận loopback hoặc request không có Origin, chặn tên miền lạ', () => {
+  test('isAllowedOrigin chỉ chấp nhận loopback, Same-Origin tunnel hoặc request không có Origin, chặn tên miền lạ', () => {
     expect(isAllowedOrigin(undefined)).toBe(true);
     expect(isAllowedOrigin('')).toBe(true);
     expect(isAllowedOrigin('http://localhost:3000')).toBe(true);
     expect(isAllowedOrigin('http://127.0.0.1:3100')).toBe(true);
-    expect(isAllowedOrigin('https://evil.example.com')).toBe(false);
+    expect(isAllowedOrigin('https://temple-live.trycloudflare.com', 'temple-live.trycloudflare.com')).toBe(
+      true
+    );
+    expect(isAllowedOrigin('https://evil.example.com', 'temple-live.trycloudflare.com')).toBe(
+      false
+    );
+    expect(isAllowedOrigin('https://evil.example.com', 'localhost:3100')).toBe(false);
     expect(isAllowedOrigin('http://localhost.evil.com:3000')).toBe(false);
   });
 

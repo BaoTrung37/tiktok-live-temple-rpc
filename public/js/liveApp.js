@@ -9,7 +9,8 @@ import { createHudAndDock } from './ui/hudAndDock.js';
  * Lắp ráp Động cơ Hạt 30FPS, Động cơ Âm thanh, Sân khấu Chánh Điện, HUD & Kết nối JSON-RPC 2.0.
  */
 const urlParams = new URLSearchParams(window.location.search);
-if (urlParams.get('obs') === '1') {
+const isObsMode = urlParams.get('obs') === '1';
+if (isObsMode) {
   document.body.classList.add('obs-mode');
 }
 
@@ -17,6 +18,12 @@ const canvas = document.getElementById('templeCanvas');
 const particles = new TempleParticleEngine(canvas);
 const audio = new TempleAudioEngine();
 const stage = createSanctuaryStage({ particles, audio });
+
+if (isObsMode) {
+  try {
+    audio.ensureContext();
+  } catch (_) {}
+}
 
 let hud = null;
 

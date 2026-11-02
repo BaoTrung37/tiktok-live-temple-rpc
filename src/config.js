@@ -29,17 +29,31 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
 /**
  * Kiểm tra Origin hợp lệ cho máy chủ Local-First (chặn các trang web lạ gọi chéo miền CSRF/CSWSH vào localhost).
- * Cho phép các công cụ không gửi Origin (OBS, curl, Streamer.bot, webhook) và mọi cổng trên loopback.
+ * Cho phép:
+ * 1. Công cụ không gửi Origin (OBS, curl, Streamer.bot, webhook),
+ * 2. Mọi cổng trên loopback (localhost / 127.0.0.1 / [::1]),
+ * 3. Yêu cầu Same-Origin thực sự (Origin.host khớp với Host khi mở qua HTTPS Tunnel cho TikTok LIVE Studio),
+ * 4. Danh sách ALLOWED_ORIGINS cấu hình thêm qua biến môi trường.
  */
-export function isAllowedOrigin(origin) {
+export function isAllowedOrigin(origin, reqHost = '') {
   if (!origin) return true;
   if (EXTRA_ALLOWED_ORIGINS.has(origin)) return true;
   try {
     const parsed = new URL(origin);
-    return (
-      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
-      LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase())
-    );
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    if (LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase())) {
+      return true;
+    }
+    const primaryReqHost = String(reqHost || '')
+      .split(',')[0]
+      .trim()
+      .toLowerCase();
+    if (primaryReqHost && parsed.host.toLowerCase() === primaryReqHost) {
+      return true;
+    }
+    return false;
   } catch (_) {
     return false;
   }

@@ -18,9 +18,13 @@ export function createTransportServer({
   const startedAt = Date.now();
   const app = express();
 
+  function getRequestHost(req) {
+    return req?.headers?.['x-forwarded-host'] || req?.headers?.host || '';
+  }
+
   app.use((req, res, next) => {
     const origin = req.headers.origin;
-    if (origin && !isAllowedOrigin(origin)) {
+    if (origin && !isAllowedOrigin(origin, getRequestHost(req))) {
       return res.status(403).json({
         ok: false,
         error: 'Forbidden cross-origin request'
@@ -30,10 +34,11 @@ export function createTransportServer({
   });
 
   app.use(
-    cors({
-      origin(origin, callback) {
-        callback(null, isAllowedOrigin(origin));
-      }
+    cors((req, callback) => {
+      const origin = req.header('Origin');
+      callback(null, {
+        origin: isAllowedOrigin(origin, getRequestHost(req))
+      });
     })
   );
   app.use(express.json({ limit: '2mb' }));
@@ -104,8 +109,8 @@ export function createTransportServer({
   const wss = new WebSocketServer({
     server,
     path: '/ws',
-    verifyClient: ({ origin }, callback) => {
-      if (!isAllowedOrigin(origin)) {
+    verifyClient: ({ origin, req }, callback) => {
+      if (!isAllowedOrigin(origin, getRequestHost(req))) {
         callback(false, 403, 'Forbidden Origin');
         return;
       }
